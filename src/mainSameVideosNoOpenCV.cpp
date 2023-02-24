@@ -17,13 +17,13 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
-void checkError(int ret, char * msg = "")
+void checkFfmpegError(int rc, char * msg = "")
 {
-    if (ret < 0) {
+    if (rc < 0) {
         char str[256];
-        av_strerror(ret, str, 256);
-        std::cout << "error at line: " << __LINE__ << "msg: " << msg
-            << " ret: " << ret << " reason: " << str << std::endl;
+        av_strerror(rc, str, 256);
+        std::cout << "error: " << msg
+                  << " (rc: " << rc << ", ffmpeg msg: " << str << ")" << std::endl;
         exit(-1);
     }
 }
@@ -34,21 +34,23 @@ int main(int argc, const char* argv[])
     int ret = -1;
     std::cout << "Using avcodec version : " << LIBAVCODEC_VERSION_MAJOR << std::endl;
     //std::string inputFilePath1 = "/home/mathieu/Downloads/test_video.mp4";
-    std::string inputFilePath1="/home/mathieu/bosse/salt/src/salt/calibration/tests/data/chessboard.mp4"; // to give for test
+    std::string inputFilePath1="../video/chessboard.mp4"; // to give for test
 
     AVFormatContext* inputFormatContext = NULL;
 
     // avformat_open_input
     //   Open an input stream and read the header.
     //   The codecs are not opened. The stream must be closed with avformat_close_input().
-    checkError(avformat_open_input(&inputFormatContext, inputFilePath1.c_str(), NULL, NULL));
+    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath1.c_str(), NULL, NULL),
+                     "open file failed");
 
     // avformat_find_stream_info
     //   Read packets of a media file to get stream information.
     //   This is useful for file formats with no headers such as MPEG. This function also computes
     //     the real framerate in case of MPEG-2 repeat frame mode. The logical file position is not
     //     changed by this function; examined packets may be buffered for later processing.
-    checkError(avformat_find_stream_info(inputFormatContext, NULL), "Could not retrieve input stream information.");
+    checkFfmpegError(avformat_find_stream_info(inputFormatContext, NULL),
+                     "could not retrieve input stream information.");
 
     // Check the video streams
     int inputVideoIndex = -1;
@@ -63,7 +65,7 @@ int main(int argc, const char* argv[])
             std::cout << "Stream "<< i << " is of unknown type" << std::endl;
         }
     }
-    checkError(inputVideoIndex != -1 ? 0 : -1, "no video stream found");
+    checkFfmpegError(inputVideoIndex != -1 ? 0 : -1, "no video stream found");
 
     // Get input video streams
     AVStream * inputVideoStream = inputFormatContext->streams[inputVideoIndex];
@@ -144,8 +146,9 @@ int main(int argc, const char* argv[])
             break;
 
         // supply raw packet data to decoder
-        checkError(avcodec_send_packet(inputCodecContext, inputPacket),
-                   "Error supplying raw packet data to decoder. ");
+        checkFfmpegError(avcodec_send_packet(inputCodecContext, inputPacket),
+                         "Error supplying raw packet data to decoder. ");
+        av_packet_unref(inputPacket);
 
         std::vector< std::pair<int64_t, cv::Mat> > frameVector;
         while(ret >= 0)
@@ -168,6 +171,8 @@ int main(int argc, const char* argv[])
 
             // Push values
             frameVector.push_back(std::make_pair(frameTimestamp, bufferMatImage.clone()));
+
+            av_frame_unref(inputFrame);
         }
 
         for(auto i = 0; i < frameVector.size(); i++)
