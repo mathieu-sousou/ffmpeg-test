@@ -33,15 +33,15 @@ int main(int argc, const char* argv[])
     std::cout << "Test FFMPEG" << std::endl;
     int ret = -1;
     std::cout << "Using avcodec version : " << LIBAVCODEC_VERSION_MAJOR << std::endl;
-    //std::string inputFilePath1 = "/home/mathieu/Downloads/test_video.mp4";
-    std::string inputFilePath1="../video/chessboard.mp4"; // to give for test
+    //std::string inputFilePath = "/home/mathieu/Downloads/test_video.mp4";
+    std::string inputFilePath="../video/charuco.mp4"; // to give for test
 
     AVFormatContext* inputFormatContext = NULL;
 
     // avformat_open_input
     //   Open an input stream and read the header.
     //   The codecs are not opened. The stream must be closed with avformat_close_input().
-    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath1.c_str(), NULL, NULL),
+    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath.c_str(), NULL, NULL),
                      "open file failed");
 
     // avformat_find_stream_info
@@ -81,10 +81,15 @@ int main(int argc, const char* argv[])
     }
 
     // Create codec contexts
-    AVCodecContext * inputCodecContext = avcodec_alloc_context3(inputCodec);
+    AVCodecContext * ctx = avcodec_alloc_context3(inputCodec);
+    if (!ctx) {
+        std::cout << "Can't allocate decoder context" << std::endl;
+        return AVERROR(ENOMEM);
+    }
+
     // avcodec_parameters_to_context
     //   Fill the codec context based on the values from the supplied codec parameters.
-    if(avcodec_parameters_to_context(inputCodecContext, inputVideoStream->codecpar) < 0)
+    if(avcodec_parameters_to_context(ctx, inputVideoStream->codecpar) < 0)
     {
         std::cout << "Failed to fill the codec context" << std::endl;
         return -1;
@@ -94,16 +99,16 @@ int main(int argc, const char* argv[])
     // avcodec_open2
     //   Initialize the AVCodecContext to use the given AVCodec.
     //   Prior to using this function the context has to be allocated with avcodec_alloc_context3().
-    ret = avcodec_open2(inputCodecContext, inputCodec, NULL);
+    ret = avcodec_open2(ctx, inputCodec, NULL);
     if(ret < 0) {
-        std::cout << "Failed to initialize the codec context." << std::endl;
+        std::cout << "can't open decoder." << std::endl;
         return -1;
     }
 
-    /////////////// opencv ///////////////
     // Initialize sample scaler
     int width = inputVideoStream->codecpar->width;
     int height = inputVideoStream->codecpar->height;
+    std::cout << "width: " << width << " height: " << height << std::endl;
 
     // init image buffer
     cv::Mat bufferMatImage = cv::Mat::zeros(height, width, CV_8UC3);
@@ -126,69 +131,79 @@ int main(int argc, const char* argv[])
     AVFrame* inputFrame = NULL;
     inputFrame = av_frame_alloc();
     if(!inputFrame)
-        return -1;
+        return AVERROR(ENOMEM);
 
     AVPacket* inputPacket = NULL;
     inputPacket = av_packet_alloc();
     if(!inputPacket)
-        return -1;
+        return AVERROR(ENOMEM);
 
     size_t readFrameNum = 0;
-    while(true){
+    int numFrame = 0;
+    ret = 0;
+    bool stopIt = false;
+    while(ret >= 0){
         // av_read_frame
         //   Return the next frame of a stream.
         //   This function returns what is stored in the file, and does not validate that what
         //   is there are valid frames for the decoder. It will split what is stored in the file
         //   into frames and return one for each call. It will not omit invalid data between valid
         //   frames so as to give the decoder the maximum information possible for decoding.
-        int ret = av_read_frame(inputFormatContext, inputPacket);
-        if(ret < 0)
-            break;
-
-        // supply raw packet data to decoder
-        checkFfmpegError(avcodec_send_packet(inputCodecContext, inputPacket),
-                         "Error supplying raw packet data to decoder. ");
+        ret = av_read_frame(inputFormatContext, inputPacket);
+        if (ret >= 0 && inputPacket->stream_index != inputVideoIndex) {
+            av_packet_unref(inputPacket);
+            continue;
+        }
+        if (ret < 0)
+            ret = avcodec_send_packet(ctx, NULL);
+        else {
+            if (inputPacket->pts == AV_NOPTS_VALUE)
+                inputPacket->pts = inputPacket->dts = numFrame;
+            ret = avcodec_send_packet(ctx, inputPacket);
+        }
         av_packet_unref(inputPacket);
 
-        std::vector< std::pair<int64_t, cv::Mat> > frameVector;
-        while(ret >= 0)
-        {
-            // avcodec_receive_frame
-            //   Return decoded output data from a decoder or encoder (when the AV_CODEC_FLAG_RECON_FRAME flag is used).
-            ret = avcodec_receive_frame(inputCodecContext, inputFrame);
-            if(ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
+        if (ret < 0) {
+            std::cout << "error submitting a packet for decoding" << std::endl;
+            return ret;
+        }
+
+        while (ret >= 0) {
+            ret = avcodec_receive_frame(ctx, inputFrame);
+            if (ret == AVERROR_EOF) {
+                stopIt = true;
                 break;
             }
-            else if(ret < 0) {
-                std::cout << "Error receiving data from decoder." << std::endl;
-                return -1;
+            else if (ret == AVERROR(EAGAIN)) {
+                ret = 0;
+                break;
+            } else if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "Error decoding frame\n");
+                return ret;
             }
-            // Extract pts (timestamp)
-            int64_t frameTimestamp = inputFrame->pts;
 
             // decode frame to openCV
             sws_scale(conversion, inputFrame->data, inputFrame->linesize, 0, height, &bufferMatImage.data, cvLinesizes);
 
-            // Push values
-            frameVector.push_back(std::make_pair(frameTimestamp, bufferMatImage.clone()));
+            std::cout << "showing frame num: " << numFrame << " timestamp: " << inputFrame->pts << std::endl;
+
+            // show it
+            cv::imshow("Mat", bufferMatImage);
+            if(cv::waitKey(10) >= 0)
+                stopIt = true;
 
             av_frame_unref(inputFrame);
-        }
+         }
+         numFrame++;
 
-        for(auto i = 0; i < frameVector.size(); i++)
-        {
-            auto timestamp = frameVector.at(i).first;
-            cv::Mat mat = frameVector.at(i).second;
-
-            std::cout << "frame num = " << readFrameNum << std::endl;
-            std::cout << "  timestamp " << timestamp << std::endl;
-
-            cv::imshow("Mat", mat);
-            cv::waitKey(10);
-        }
-        std::cout << "  nb received frame from decoder: " << frameVector.size() << std::endl;
-        readFrameNum++;
+         if (stopIt)
+            break;
     }
 
-   return 0;
+    av_packet_free(&inputPacket);
+    av_frame_free(&inputFrame);
+    avformat_close_input(&inputFormatContext);
+    avcodec_free_context(&ctx);
+
+    return 0;
 }
