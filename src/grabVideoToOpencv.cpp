@@ -1,6 +1,3 @@
-#include <iostream>
-#include <string>
-
 #include <opencv2/opencv.hpp>
 /*
  # cmake prefix path
@@ -24,6 +21,11 @@ extern "C"
 #include <libswscale/swscale.h>
 }
 
+#include <iostream>
+#include <string>
+#include <chrono>
+#include <thread>
+
 void checkFfmpegError(int rc, char * msg = "")
 {
     if (rc < 0) {
@@ -43,13 +45,20 @@ int main(int argc, const char* argv[])
     std::string inputFilePath;
     //inputFilePath = "/home/mathieu/Downloads/test_video.mp4";
     inputFilePath="../video/charuco.mp4"; // to give for test
-    
+    // I B P frame explained :
+    // https://stackoverflow.com/questions/9014475/ffmpeg-c-c-get-frame-count-or-timestamp-and-fps
+    // http://dranger.com/ffmpeg/tutorial05.html
+    // https://stackoverflow.com/questions/45942670/ffmpeg-c-how-to-get-the-timestamp-in-seconds-since-epoch-that-a-frame-was-tak
+
+    //inputFilePath="/dev/video0";
+
+    auto isVideo = inputFilePath.find("/dev/video") != 0;
+
     AVFormatContext* inputFormatContext = NULL;
     AVInputFormat * inputFormat = NULL;
     AVDictionary* dictionary = NULL;
 
-    //inputFilePath="/dev/video0";
-    if (inputFilePath.find("/dev/video") == 0) {
+    if (!isVideo) {
         avdevice_register_all();
         inputFormat = av_find_input_format("v4l2");
         //av_dict_set(&dictionary, "video_size", "1280x720", NULL);
@@ -107,7 +116,10 @@ int main(int argc, const char* argv[])
 
     // Get input video streams
     AVStream * inputVideoStream = inputFormatContext->streams[inputVideoIndex];
+    const double FPS = (double) inputVideoStream->r_frame_rate.num /
+            (double) inputVideoStream->r_frame_rate.den;
     std::cout << "start time: " << inputVideoStream->start_time << std::endl;
+    std::cout << "fps: " << FPS << std::endl;
 
     // Get decoders of video stream
     // avcodec_find_decoder
@@ -228,11 +240,15 @@ int main(int argc, const char* argv[])
             // decode frame to openCV
             sws_scale(conversion, inputFrame->data, inputFrame->linesize, 0, height, &bufferMatImage.data, cvLinesizes);
 
-            auto diffPts = inputFrame->pts - lastTimeStamp;
+            auto diffPts = inputFrame->best_effort_timestamp - lastTimeStamp;
             auto fps = 1000.0 / (diffPts / 1000.0);
-            std::cout << "showing frame num: " << numFrame << " timestamp: " << inputFrame->pts
+            std::cout << "showing frame num: " << numFrame << " timestamp: " << inputFrame->pts << " besttimestamp: " << inputFrame->best_effort_timestamp
                     << " diff timestamp: " <<  diffPts << " fps: " <<  fps << std::endl;
-            lastTimeStamp = inputFrame->pts;
+            lastTimeStamp = inputFrame->best_effort_timestamp;
+
+            // ugly and wrong (should grab the frame, get the timestamp, show the frame at right timestamp)
+            if (isVideo)
+                std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(1000.0 / FPS)));
 
             // show it
             cv::imshow("Mat", bufferMatImage);
