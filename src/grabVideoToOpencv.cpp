@@ -50,7 +50,7 @@ int main(int argc, const char* argv[])
     // http://dranger.com/ffmpeg/tutorial05.html
     // https://stackoverflow.com/questions/45942670/ffmpeg-c-how-to-get-the-timestamp-in-seconds-since-epoch-that-a-frame-was-tak
 
-    //inputFilePath="/dev/video0";
+    inputFilePath="/dev/video0";
 
     auto isVideo = inputFilePath.find("/dev/video") != 0;
 
@@ -67,6 +67,9 @@ int main(int argc, const char* argv[])
         //av_dict_set(&dictionary, "video_size", "2560x720", NULL);
         //av_dict_set(&dictionary, "video_size", "1344x376", NULL);
         av_dict_set(&dictionary, "framerate", "30", NULL);
+        // ffmpeg 30fps 1344x376 12%, with windows 30%
+        // opencv 16% 35%
+        // ffplay 5% 60fps 2560x720
         // if need to use mjpeg cam:
         // https://stackoverflow.com/questions/23443322/decoding-mjpeg-with-libavcodec
         //AVCodec * openedMjpegCodec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
@@ -209,7 +212,7 @@ int main(int argc, const char* argv[])
             av_packet_unref(inputPacket);
             continue;
         }
-        if (ret < 0)
+        if (ret < 0 || inputPacket->size == 0)
             ret = avcodec_send_packet(ctx, NULL); // see ctx !!!
         else {
             if (inputPacket->pts == AV_NOPTS_VALUE)
@@ -251,7 +254,7 @@ int main(int argc, const char* argv[])
                 std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<long>(1000.0 / FPS)));
 
             // show it
-            cv::imshow("Mat", bufferMatImage);
+            //cv::imshow("Mat", bufferMatImage);
             if(cv::waitKey(1) >= 0)
                 stopIt = true;
 
