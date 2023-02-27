@@ -40,20 +40,34 @@ int main(int argc, const char* argv[])
     std::cout << "Test FFMPEG" << std::endl;
     int ret = -1;
     std::cout << "Using avcodec version : " << LIBAVCODEC_VERSION_MAJOR << std::endl;
-    //std::string inputFilePath = "/home/mathieu/Downloads/test_video.mp4";
-    //std::string inputFilePath="../video/charuco.mp4"; // to give for test
-    std::string inputFilePath="/dev/video0"; // to give for test
-
-    avdevice_register_all();
-
+    std::string inputFilePath;
+    //inputFilePath = "/home/mathieu/Downloads/test_video.mp4";
+    inputFilePath="../video/charuco.mp4"; // to give for test
+    
     AVFormatContext* inputFormatContext = NULL;
-    AVDictionary *options = NULL;
-    av_dict_set(&options, "framerate", "30", 0);
-    AVInputFormat * inputFormat = av_find_input_format("v4l2");
+    AVInputFormat * inputFormat = NULL;
+    AVDictionary* dictionary = NULL;
 
-    inputFormatContext = avformat_alloc_context();
+    //inputFilePath="/dev/video0";
+    if (inputFilePath.find("/dev/video") == 0) {
+        avdevice_register_all();
+        inputFormat = av_find_input_format("v4l2");
+        //av_dict_set(&dictionary, "video_size", "1280x720", NULL);
+        av_dict_set(&dictionary, "video_size", "640x480", NULL);
+        //av_dict_set(&dictionary, "video_size", "640x360", NULL);
+        //av_dict_set(&dictionary, "video_size", "2560x720", NULL);
+        //av_dict_set(&dictionary, "video_size", "1344x376", NULL);
+        av_dict_set(&dictionary, "framerate", "30", NULL);
+        // if need to use mjpeg cam:
+        // https://stackoverflow.com/questions/23443322/decoding-mjpeg-with-libavcodec
+        //AVCodec * openedMjpegCodec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+        //inputFormatContext = avformat_alloc_context();
+        //inputFormatContext->video_codec_id = AV_CODEC_ID_MJPEG;
+        //av_format_set_video_codec(inputFormatContext, openedMjpegCodec);
+    }
+
     int scan_all_pmts_set = 0;
-//    AVDictionary *format_opts;
+//    AVDictionary *format_opts = NULL;
 //    if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE)) {
 //        av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
 //        scan_all_pmts_set = 1;
@@ -62,7 +76,7 @@ int main(int argc, const char* argv[])
     // avformat_open_input
     //   Open an input stream and read the header.
     //   The codecs are not opened. The stream must be closed with avformat_close_input().
-    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath.c_str(), inputFormat, NULL), //&format_opts
+    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath.c_str(), inputFormat, &dictionary),
                      "open file failed");
 
 //    if (scan_all_pmts_set)
@@ -222,7 +236,7 @@ int main(int argc, const char* argv[])
 
             // show it
             cv::imshow("Mat", bufferMatImage);
-            if(cv::waitKey(5) >= 0)
+            if(cv::waitKey(1) >= 0)
                 stopIt = true;
 
             av_frame_unref(inputFrame);
