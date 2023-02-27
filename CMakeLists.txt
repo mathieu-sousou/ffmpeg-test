@@ -11,6 +11,7 @@ find_package(OpenCV REQUIRED COMPONENTS opencv_core opencv_imgproc opencv_videoi
 find_library(AVCODEC_LIBRARY avcodec)
 find_library(AVFORMAT_LIBRARY avformat)
 find_library(AVUTIL_LIBRARY avutil)
+find_library(AVDEVICE_LIBRARY avdevice)
 find_library(AVFILTER_LIBRARY avfilter)
 find_library(SWSCALE_LIBRARY swscale)
 find_library(SWRESAMPLE_LIBRARY swresample)
@@ -24,12 +25,8 @@ find_library(SWRESAMPLE_LIBRARY swresample)
 #        libswscale
 #        libavutil
 #        )
-
 find_package(ZLIB)
 find_package(BZip2)
-
-
-
 find_package(Threads REQUIRED)
 
 
@@ -100,13 +97,13 @@ target_link_libraries(testTimestampVideos PRIVATE ${AVCODEC_LIBRARY} ${AVFORMAT_
 
 
 #CHECK SAME VIDEOS
-add_executable(mainSameVideosNoOpenCV
-        src/mainSameVideosNoOpenCV.cpp
+add_executable(grabVideoToOpencv
+        src/grabVideoToOpencv.cpp
         )
-target_include_directories(mainSameVideosNoOpenCV PUBLIC ${Boost_INCLUDE_DIRS})
+target_include_directories(grabVideoToOpencv PUBLIC ${Boost_INCLUDE_DIRS})
 #target_link_libraries(mainSameVideosNoOpenCV PRIVATE ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OpenCV_LIBS} ${Boost_LIBRARIES})
-target_link_libraries(mainSameVideosNoOpenCV PRIVATE
-        ${AVCODEC_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OpenCV_LIBS}
+target_link_libraries(grabVideoToOpencv PRIVATE
+        ${AVCODEC_LIBRARY} ${AVDEVICE_LIBRARY} ${AVFORMAT_LIBRARY} ${AVUTIL_LIBRARY} ${SWSCALE_LIBRARY} ${OpenCV_LIBS}
         ${OpenCV_LIBS} ${Boost_LIBRARIES} Threads::Threads ZLIB::ZLIB ${BZIP2_LIBRARIES} dl)
-        #PkgConfig::LIBAV ${Boost_LIBRARIES})# Threads::Threads ZLIB::ZLIB ${BZIP2_LIBRARIES})
-# /home/mathieu/bosse/test/ffmpeg/install;
+#target_link_libraries(grabVideoToOpencv PRIVATE
+#        PkgConfig::LIBAV ${Boost_LIBRARIES})# Threads::Threads ZLIB::ZLIB ${BZIP2_LIBRARIES})

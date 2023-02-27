@@ -3,15 +3,22 @@
 
 #include <opencv2/opencv.hpp>
 /*
- /home/mathieu/bosse/test/ffmpeg/install;
- /home/mathieu/bosse/test/opencv-4.5.5/install
- ../configure --prefix=../install --enable-shared --disable-stripping --enable-debug=1
+ # cmake prefix path
+ -DCMAKE_PREFIX_PATH=/home/mathieu/bosse/test/ffmpeg/install;/home/mathieu/bosse/test/opencv-4.5.5/install
+ # opencv config: (ffplay needs libsdl2-dev)
+ ../configure --prefix=../install --enable-shared --disable-stripping --enable-debug=1 --enable-sdl2
+ --disable-optimizations --extra-cflags=-Og --extra-cflags=-fno-omit-frame-pointer --enable-debug=3 --extra-cflags=-fno-inline
+ --extra-cflags="-gstabs+"
+   https://stackoverflow.com/questions/9211163/debugging-ffmpeg
+ # source inspired from
+ from http://ffmpeg.org/doxygen/trunk/api-h264-test_8c_source.html#l00033
 */
 
 extern "C"
 {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavdevice/avdevice.h>
 #include <libavutil/opt.h>
 #include <libavutil/timestamp.h>
 #include <libswscale/swscale.h>
@@ -34,15 +41,32 @@ int main(int argc, const char* argv[])
     int ret = -1;
     std::cout << "Using avcodec version : " << LIBAVCODEC_VERSION_MAJOR << std::endl;
     //std::string inputFilePath = "/home/mathieu/Downloads/test_video.mp4";
-    std::string inputFilePath="../video/charuco.mp4"; // to give for test
+    //std::string inputFilePath="../video/charuco.mp4"; // to give for test
+    std::string inputFilePath="/dev/video0"; // to give for test
+
+    avdevice_register_all();
 
     AVFormatContext* inputFormatContext = NULL;
+    AVDictionary *options = NULL;
+    av_dict_set(&options, "framerate", "30", 0);
+    AVInputFormat * inputFormat = av_find_input_format("v4l2");
+
+    inputFormatContext = avformat_alloc_context();
+    int scan_all_pmts_set = 0;
+//    AVDictionary *format_opts;
+//    if (!av_dict_get(format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE)) {
+//        av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
+//        scan_all_pmts_set = 1;
+//    }
 
     // avformat_open_input
     //   Open an input stream and read the header.
     //   The codecs are not opened. The stream must be closed with avformat_close_input().
-    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath.c_str(), NULL, NULL),
+    checkFfmpegError(avformat_open_input(&inputFormatContext, inputFilePath.c_str(), inputFormat, NULL), //&format_opts
                      "open file failed");
+
+//    if (scan_all_pmts_set)
+//        av_dict_set(&format_opts, "scan_all_pmts", NULL, AV_DICT_MATCH_CASE);
 
     // avformat_find_stream_info
     //   Read packets of a media file to get stream information.
@@ -99,7 +123,7 @@ int main(int argc, const char* argv[])
     // avcodec_open2
     //   Initialize the AVCodecContext to use the given AVCodec.
     //   Prior to using this function the context has to be allocated with avcodec_alloc_context3().
-    ret = avcodec_open2(ctx, inputCodec, NULL);
+    ret = avcodec_open2(ctx, inputCodec, NULL); // see if yuv !!!!
     if(ret < 0) {
         std::cout << "can't open decoder." << std::endl;
         return -1;
@@ -142,6 +166,7 @@ int main(int argc, const char* argv[])
     int numFrame = 0;
     ret = 0;
     bool stopIt = false;
+    int64_t lastTimeStamp = 0;
     while(ret >= 0){
         // av_read_frame
         //   Return the next frame of a stream.
@@ -150,12 +175,16 @@ int main(int argc, const char* argv[])
         //   into frames and return one for each call. It will not omit invalid data between valid
         //   frames so as to give the decoder the maximum information possible for decoding.
         ret = av_read_frame(inputFormatContext, inputPacket);
+//        if (inputPacket->size == 0) {
+//            av_packet_unref(inputPacket);
+//            continue;
+//        }
         if (ret >= 0 && inputPacket->stream_index != inputVideoIndex) {
             av_packet_unref(inputPacket);
             continue;
         }
         if (ret < 0)
-            ret = avcodec_send_packet(ctx, NULL);
+            ret = avcodec_send_packet(ctx, NULL); // see ctx !!!
         else {
             if (inputPacket->pts == AV_NOPTS_VALUE)
                 inputPacket->pts = inputPacket->dts = numFrame;
@@ -185,11 +214,15 @@ int main(int argc, const char* argv[])
             // decode frame to openCV
             sws_scale(conversion, inputFrame->data, inputFrame->linesize, 0, height, &bufferMatImage.data, cvLinesizes);
 
-            std::cout << "showing frame num: " << numFrame << " timestamp: " << inputFrame->pts << std::endl;
+            auto diffPts = inputFrame->pts - lastTimeStamp;
+            auto fps = 1000.0 / (diffPts / 1000.0);
+            std::cout << "showing frame num: " << numFrame << " timestamp: " << inputFrame->pts
+                    << " diff timestamp: " <<  diffPts << " fps: " <<  fps << std::endl;
+            lastTimeStamp = inputFrame->pts;
 
             // show it
             cv::imshow("Mat", bufferMatImage);
-            if(cv::waitKey(10) >= 0)
+            if(cv::waitKey(5) >= 0)
                 stopIt = true;
 
             av_frame_unref(inputFrame);
@@ -200,10 +233,14 @@ int main(int argc, const char* argv[])
             break;
     }
 
-    av_packet_free(&inputPacket);
-    av_frame_free(&inputFrame);
-    avformat_close_input(&inputFormatContext);
-    avcodec_free_context(&ctx);
+    if (inputPacket)
+        av_packet_free(&inputPacket);
+    if (inputFrame)
+        av_frame_free(&inputFrame);
+    if (inputFormatContext)
+        avformat_close_input(&inputFormatContext);
+    if (ctx)
+        avcodec_free_context(&ctx);
 
     return 0;
 }
